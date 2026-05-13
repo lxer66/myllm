@@ -7,7 +7,8 @@ from threading import Thread
 import torch
 import numpy as np
 import streamlit as st
-from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
+from transformers import AutoModelForCausalLM, TextIteratorStreamer
+from model.minimind_tokenizer import MiniMindTokenizer
 
 st.set_page_config(page_title="MiniMind", initial_sidebar_state="collapsed")
 
@@ -201,10 +202,7 @@ def load_model_tokenizer(model_path):
         model_path,
         trust_remote_code=True
     )
-    tokenizer = AutoTokenizer.from_pretrained(
-        model_path,
-        trust_remote_code=True
-    )
+    tokenizer = MiniMindTokenizer.from_pretrained(model_path, trust_remote_code=True)
     model = model.half().eval().to(device)
     return model, tokenizer
 

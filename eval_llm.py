@@ -3,14 +3,15 @@ import argparse
 import random
 import warnings
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM, TextStreamer
+from transformers import AutoModelForCausalLM, TextStreamer
 from model.model_minimind import MiniMindConfig, MiniMindForCausalLM
 from model.model_lora import *
+from model.minimind_tokenizer import MiniMindTokenizer
 from trainer.trainer_utils import setup_seed, get_model_params
 warnings.filterwarnings('ignore')
 
 def init_model(args):
-    tokenizer = AutoTokenizer.from_pretrained(args.load_from)
+    tokenizer = MiniMindTokenizer.from_pretrained(args.load_from)
     if 'model' in args.load_from:
         model = MiniMindForCausalLM(MiniMindConfig(
             hidden_size=args.hidden_size,

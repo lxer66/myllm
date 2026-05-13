@@ -106,8 +106,8 @@ def train_tokenizer(data_path, tokenizer_dir, vocab_size, special_tokens_num=SPE
     print("Tokenizer training completed.")
 
 def eval_tokenizer(tokenizer_dir):
-    from transformers import AutoTokenizer
-    tokenizer = AutoTokenizer.from_pretrained(tokenizer_dir)
+    from model.minimind_tokenizer import MiniMindTokenizer
+    tokenizer = MiniMindTokenizer.from_pretrained(tokenizer_dir)
     messages = [
         {"role": "system", "content": "你是一个优秀的聊天机器人，总是给我正确的回应！"},
         {"role": "user", "content": '你来自哪里？'},

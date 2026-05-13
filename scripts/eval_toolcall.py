@@ -9,9 +9,10 @@ import argparse
 import warnings
 import torch
 from datetime import datetime
-from transformers import AutoTokenizer, AutoModelForCausalLM, TextStreamer
+from transformers import AutoModelForCausalLM, TextStreamer
 from openai import OpenAI
 from model.model_minimind import MiniMindConfig, MiniMindForCausalLM
+from model.minimind_tokenizer import MiniMindTokenizer
 from trainer.trainer_utils import setup_seed, get_model_params
 warnings.filterwarnings('ignore')
 
@@ -55,7 +56,7 @@ TEST_CASES = [
 
 
 def init_model(args):
-    tokenizer = AutoTokenizer.from_pretrained(args.load_from)
+    tokenizer = MiniMindTokenizer.from_pretrained(args.load_from)
     if 'model' in args.load_from:
         model = MiniMindForCausalLM(MiniMindConfig(hidden_size=args.hidden_size, num_hidden_layers=args.num_hidden_layers, use_moe=bool(args.use_moe)))
         moe_suffix = '_moe' if args.use_moe else ''

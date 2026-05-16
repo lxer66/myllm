@@ -118,8 +118,8 @@ def lm_checkpoint(lm_config, weight='full_sft', model=None, optimizer=None, epoc
 
 
 def init_model(lm_config, from_weight='pretrain', tokenizer_path='../model', save_dir='../out', device='cuda'):
-    tokenizer = MiniMindTokenizer.from_pretrained(tokenizer_path)
-    model = MiniMindForCausalLM(lm_config)
+    tokenizer = MyTokenizer.from_pretrained(tokenizer_path)
+    model = MicroLMForCausalLM(lm_config)
 
     if from_weight!= 'none':
         moe_suffix = '_moe' if lm_config.use_moe else ''

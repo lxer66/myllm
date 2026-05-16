@@ -152,7 +152,7 @@ class TransformerBlock(nn.Module):
         hidden_states = hidden_states + self.mlp(self.post_attention_layernorm(hidden_states))
         return hidden_states, present_key_value
 
-class MyLLMModel(nn.Module):
+class MicroLMModel(nn.Module):
     def __init__(self, config: Config):
         super().__init__()
         self.config = config
@@ -190,13 +190,13 @@ class MyLLMModel(nn.Module):
         aux_loss = sum([l.mlp.aux_loss for l in self.layers if isinstance(l.mlp, MOEFeedForward)], hidden_states.new_zeros(1).squeeze())
         return hidden_states, presents, aux_loss
 
-class MyLLMForCausalLM(PreTrainedModel, GenerationMixin):
+class MicroLMForCausalLM(PreTrainedModel, GenerationMixin):
     config_class = Config
     _tied_weights_keys = {"lm_head.weight": "model.embed_tokens.weight"}
     def __init__(self, config: Config = None):
         self.config = config or Config()
         super().__init__(self.config)
-        self.model = MyLLMModel(self.config)
+        self.model = MicroLMModel(self.config)
         self.lm_head = nn.Linear(self.config.hidden_size, self.config.vocab_size, bias=False)
         if self.config.tie_word_embeddings: self.model.embed_tokens.weight = self.lm_head.weight
         self.post_init()

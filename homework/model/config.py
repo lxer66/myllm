@@ -3,7 +3,7 @@ from transformers import PretrainedConfig
 
 
 class Config(PretrainedConfig):
-    model_type = "myllm" #  名字待定
+    model_type = "MicroLM" #  名字待定
     def __init__(self, hidden_size=768, num_hidden_layers=8, use_moe=False, **kwargs):
         super().__init__(**kwargs)
         self.hidden_size = hidden_size

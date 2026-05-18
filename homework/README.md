@@ -12,7 +12,7 @@
 
 ## 当前进度
 
-模型搭建、数据预处理与预训练脚本已完成，等待训练数据就绪后可启动训练。
+模型搭建、数据预处理与预训练脚本已完成，预训练已启动。
 
 ## 文件说明
 
@@ -61,7 +61,7 @@
 
 预训练脚本，遵循标准 9 步骨架：DDP 初始化 → 配置/续训检查 → 混合精度 → wandb → 模型/数据/优化器 → 恢复状态 → compile/DDP 包装 → 训练循环 → 清理进程组。
 
-每 `save_interval` 步保存两份产物：`out/` 下的 half 精度纯权重 `.pth` 和 `checkpoints/` 下的完整续训包。
+默认训练 1 个 epoch，有效 batch=256，每 50000 步保存两份产物：`out/` 下的 half 精度纯权重 `.pth` 和 `checkpoints/` 下的完整续训包。训练记录通过 WandB 实时上报 loss / ppl / grad_norm / tokens_per_sec 等指标。
 
 ### trainer/trainer_utils.py
 
@@ -99,4 +99,4 @@ python train_pretrain.py --from_resume 1
 python train_pretrain.py --use_wandb
 ```
 
-训练数据默认路径为 `../dataset/pretrain_t2t_mini.jsonl`，可通过 `--data_path` 指定。
+训练数据默认路径为 `../dataset/pretrain_t2t.jsonl`，可通过 `--data_path` 指定。

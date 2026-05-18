@@ -5,6 +5,7 @@ __package__ = "trainer"
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import argparse
+import math
 import time
 import warnings
 from tqdm import tqdm
@@ -25,6 +26,8 @@ warnings.filterwarnings('ignore')
 def train_epoch(epoch, loader, iters, start_step=0, wandb=None, pbar=None):
     start_time = time.time()
     last_step = start_step
+    cached_loss, cached_aux, cached_lr, cached_grad = 0.0, 0.0, 0.0, 0.0
+    last_log_time, last_log_step = start_time, start_step
     for step, (input_ids, labels) in enumerate(loader, start=start_step + 1):
         input_ids = input_ids.to(args.device)
         labels = labels.to(args.device)
@@ -42,31 +45,48 @@ def train_epoch(epoch, loader, iters, start_step=0, wandb=None, pbar=None):
 
         if step % args.accumulation_steps == 0:
             scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
+            cached_grad = torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip).item()
 
             scaler.step(optimizer)
             scaler.update()
 
             optimizer.zero_grad(set_to_none=True)
 
-        current_loss = loss.item() * args.accumulation_steps
-        current_aux_loss = res.aux_loss.item() if res.aux_loss is not None else 0.0
-        current_logits_loss = current_loss - current_aux_loss
-
         if pbar:
             pbar.set_postfix({
-                'loss': f'{current_loss:.4f}',
-                'aux': f'{current_aux_loss:.4f}',
-                'lr': f'{lr:.2e}',
+                'loss': f'{cached_loss:.4f}',
+                'aux': f'{cached_aux:.4f}',
+                'lr': f'{cached_lr:.2e}',
             })
             pbar.update(1)
 
         if step % args.log_interval == 0 or step == iters:
-            spend_time = time.time() - start_time
+            current_loss = loss.item() * args.accumulation_steps
+            current_aux_loss = res.aux_loss.item() if res.aux_loss is not None else 0.0
+            current_logits_loss = current_loss - current_aux_loss
+            current_ppl = math.exp(current_loss)
+            now = time.time()
+            log_delta = now - last_log_time
+            log_steps = step - last_log_step
+            tokens = args.batch_size * args.max_seq_len * log_steps
+            tokens_per_sec = tokens / max(log_delta, 0.001)
+            cached_loss, cached_aux, cached_lr = current_loss, current_aux_loss, lr
+            last_log_time, last_log_step = now, step
+            spend_time = now - start_time
             current_lr = optimizer.param_groups[-1]['lr']
             eta_min = spend_time / max(step - start_step, 1) * (iters - step) // 60
-            Logger(f'Epoch:[{epoch + 1}/{args.epochs}]({step}/{iters}), loss: {current_loss:.4f}, logits_loss: {current_logits_loss:.4f}, aux_loss: {current_aux_loss:.4f}, lr: {current_lr:.8f}, eta: {eta_min:.1f}min')
-            if wandb: wandb.log({"loss": current_loss, "logits_loss": current_logits_loss, "aux_loss": current_aux_loss, "learning_rate": current_lr, "epoch_time": eta_min})
+            Logger(f'Epoch:[{epoch + 1}/{args.epochs}]({step}/{iters}), loss: {current_loss:.4f}, ppl: {current_ppl:.2f}, aux: {current_aux_loss:.4f}, lr: {current_lr:.2e}, grad: {cached_grad:.2f}, tok/s: {tokens_per_sec:.0f}, eta: {eta_min:.1f}min')
+            if wandb: wandb.log({
+                "epoch": epoch + 1,
+                "step": step,
+                "loss": current_loss,
+                "logits_loss": current_logits_loss,
+                "aux_loss": current_aux_loss,
+                "ppl": current_ppl,
+                "learning_rate": current_lr,
+                "grad_norm": cached_grad,
+                "tokens_per_sec": tokens_per_sec,
+            })
 
         if (step % args.save_interval == 0 or step == iters) and is_main_process():
             model.eval()
@@ -94,16 +114,16 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="MicroLM Pretraining")
     parser.add_argument("--save_dir", type=str, default="../out", help="模型保存目录")
     parser.add_argument('--save_weight', default='pretrain', type=str, help="保存权重的前缀名")
-    parser.add_argument("--epochs", type=int, default=2, help="训练轮数")
+    parser.add_argument("--epochs", type=int, default=1, help="训练轮数")
     parser.add_argument("--batch_size", type=int, default=32, help="batch size")
     parser.add_argument("--learning_rate", type=float, default=5e-4, help="初始学习率")
     parser.add_argument("--device", type=str, default="cuda:0" if torch.cuda.is_available() else "cpu", help="训练设备")
     parser.add_argument("--dtype", type=str, default="bfloat16", help="混合精度类型")
-    parser.add_argument("--num_workers", type=int, default=0, help="数据加载线程数（Windows 设为 0，Linux 设为 8）")
+    parser.add_argument("--num_workers", type=int, default=8, help="数据加载线程数")
     parser.add_argument("--accumulation_steps", type=int, default=8, help="梯度累积步数")
     parser.add_argument("--grad_clip", type=float, default=1.0, help="梯度裁剪阈值")
     parser.add_argument("--log_interval", type=int, default=100, help="日志打印间隔")
-    parser.add_argument("--save_interval", type=int, default=1000, help="模型保存间隔")
+    parser.add_argument("--save_interval", type=int, default=50000, help="模型保存间隔")
     parser.add_argument('--hidden_size', default=768, type=int, help="隐藏层维度")
     parser.add_argument('--num_hidden_layers', default=8, type=int, help="隐藏层数量")
     parser.add_argument('--max_seq_len', default=340, type=int, help="训练的最大截断长度（中文1token≈1.5~1.7字符）")
@@ -137,7 +157,7 @@ if __name__ == "__main__":
     # ========== 4. 配wandb ==========
     wandb = None
     if args.use_wandb and is_main_process():
-        import swanlab as wandb
+        import wandb
         wandb_id = ckp_data.get('wandb_id') if ckp_data else None
         resume = 'must' if wandb_id else None
         wandb_run_name = f"MicroLM-Pretrain-Epoch-{args.epochs}-BatchSize-{args.batch_size}-LearningRate-{args.learning_rate}"

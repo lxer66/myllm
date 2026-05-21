@@ -35,7 +35,7 @@ def is_main_process():
 
 def Logger(content):
     if is_main_process():
-        print(content)
+        print(content, flush=True)
 
 
 def get_lr(current_step, total_steps, lr):

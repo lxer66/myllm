@@ -46,12 +46,42 @@ class PretrainDataset(Dataset):
 
     def __getitem__(self, index):
         sample = self.samples[index]
-        tokens = self.tokenizer(str(sample['text']), add_special_tokens=False, max_length=self.max_length - 2, truncation=True).input_ids
+        text = str(sample['text'])
+        if len(text) > self.max_length * 4:
+            text = text[:self.max_length * 4]
+        tokens = self.tokenizer(text, add_special_tokens=False, max_length=self.max_length - 2, truncation=True).input_ids
         tokens = [self.tokenizer.bos_token_id] + tokens + [self.tokenizer.eos_token_id]
         input_ids = tokens + [self.tokenizer.pad_token_id] * (self.max_length - len(tokens))
         input_ids = torch.tensor(input_ids, dtype=torch.long)
         labels = input_ids.clone()
         labels[input_ids == self.tokenizer.pad_token_id] = -100
+        return input_ids, labels
+
+
+class BinDataset(Dataset):
+    """预 tokenize 后的二进制数据集，mmap 读取，零 CPU 零随机 I/O。"""
+    def __init__(self, data_path, max_length=512):
+        super().__init__()
+        self.max_length = max_length
+        import numpy as np
+        self._np = np
+        meta_path = data_path + '.json'
+        if os.path.exists(meta_path):
+            with open(meta_path) as f:
+                meta = json.load(f)
+            shape = tuple(meta['shape'])
+        else:
+            shape = (-1, 2, max_length)
+        self.data = np.memmap(data_path, dtype=np.int16, mode='r', shape=shape)
+        self.length = self.data.shape[0]
+
+    def __len__(self):
+        return self.length
+
+    def __getitem__(self, index):
+        row = self.data[index]
+        input_ids = torch.from_numpy(row[0].astype(self._np.int64))
+        labels = torch.from_numpy(row[1].astype(self._np.int64))
         return input_ids, labels
 
 class SFTDataset(Dataset):

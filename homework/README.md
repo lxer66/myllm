@@ -12,7 +12,7 @@
 
 ## 当前进度
 
-模型搭建、数据预处理、预 tokenize、预训练与推理评测均已完成。
+模型搭建、数据预处理、预 tokenize、预训练、SFT 微调与推理评测均已完成。
 
 ## 文件说明
 
@@ -64,19 +64,27 @@
 
 - 使用 HuggingFace 原生 `tokenizers` 库（Rust 后端），处理速度 8000-15000 it/s
 - 多进程并行（默认 8 进程），846 万条数据约 10 分钟完成
-- BPE 输入前按 `max_seq_len * 4` 字符截断，防止长文本卡死
 - 输出格式：`int16` 二进制文件（~11.5 GB）+ 形状元数据 JSON
 - 用法：`cd dataset && python pre_tokenize.py`
 
 ### trainer/train_pretrain.py
 
-预训练脚本，遵循标准 9 步骨架：DDP 初始化 → 配置/续训检查 → 混合精度 → 绘图准备 → 模型/数据/优化器 → 恢复状态 → compile/DDP 包装 → 训练循环 → 清理进程组。
+预训练脚本，遵循标准 9 步骨架。
 
 - 支持在线 tokenize（`PretrainDataset`，读 JSONL）和预 tokenize（`BinDataset`，读 `.bin`），通过 `--data_path` 后缀自动切换
-- 每 100 步 Logger 打印训练指标，每 1000 步自动生成 loss/ppl/lr/grad 四张 seaborn 曲线图
-- 数据点保存至 `plots/metrics.json`，图片保存至 `plots/*.png`
-- 默认 `num_workers=8`、`save_interval=20000`、`log_interval=100`
-- **WandB 已移除**，训练日志仅通过 `Logger` 输出和控制台 `tee` 保存
+- 本地 seaborn 绘图：每 1000 步自动生成 loss/ppl/lr/grad 四张曲线图，保存至 `trainer/plots/`
+- 数据点持久化至 `plots/metrics.json`，续训时自动恢复历史数据
+- 默认 `batch_size=128`、`accumulation_steps=2`（有效 batch=256）、`epochs=1`、`save_interval=20000`、`lr=5e-4`
+- Step 0 记录初始 loss，便于对比训练效果
+
+### trainer/train_full_sft.py
+
+全参数 SFT 脚本，与预训练脚本结构对齐。
+
+- 基于 `from_weight=pretrain` 的预训练权重进行微调
+- 同样使用 seaborn 本地绘图，图表保存至 `trainer/plots_sft/`
+- 默认 `batch_size=16`、`accumulation_steps=1`（有效 batch=16）、`epochs=2`、`lr=1e-5`、`max_seq_len=768`
+- 对话数据通过 `SFTDataset.generate_labels` 只对 assistant 回复区间计算 loss
 
 ### trainer/trainer_utils.py
 
@@ -98,34 +106,47 @@
 
 ```bash
 cd ./homework/trainer
+```
 
-# === 预 tokenize（首次训练前执行一次即可）===
+### 预 tokenize（首次训练前执行一次即可）
+
+```bash
 cd ../dataset
 python pre_tokenize.py                         # 生成 pretrain_t2t.bin（~11.5 GB，约 10 分钟）
+```
 
-# === 预训练 ===
+### 预训练
+
+```bash
 cd ../trainer
-
-# 在线 tokenize 训练（备用，长文本数据会卡顿）
-python train_pretrain.py
 
 # 预 tokenize 训练（推荐，零 CPU/IO 瓶颈）
 python train_pretrain.py --data_path ../dataset/pretrain_t2t.bin
 
+# 在线 tokenize 训练（备用，长文本数据会卡顿）
+python train_pretrain.py
+
 # MoE 变体
 python train_pretrain.py --data_path ../dataset/pretrain_t2t.bin --use_moe 1
 
-# 多 GPU（DDP）
-torchrun --nproc_per_node N train_pretrain.py --data_path ../dataset/pretrain_t2t.bin
-
 # 断点续训
 python train_pretrain.py --data_path ../dataset/pretrain_t2t.bin --from_resume 1
-
-# 从预训练权重继续训练
-python train_pretrain.py --from_weight pretrain
 ```
 
-## 推理测试
+### SFT 微调
+
+```bash
+# 基于预训练权重
+python train_full_sft.py
+
+# 多 GPU（DDP）
+torchrun --nproc_per_node N train_full_sft.py
+
+# 断点续训
+python train_full_sft.py --from_resume 1
+```
+
+### 推理测试
 
 ```bash
 cd ./homework
@@ -144,8 +165,13 @@ python eval_pretrain.py                    # 自动加载 out/pretrain_768.pth
 | 耗时 | ~10 分钟（8 进程，Rust tokenizer） |
 | 截断策略 | 文本 > 1360 字符先截断再 BPE（覆盖 95.3% 数据） |
 
-## 训练结果（预训练 1 epoch）
+## 训练曲线
 
-- 最终 loss：~1.79（step 64700，续训前）
-- 模型权重：`out/pretrain_768.pth`（132 MB，half 精度）
-- 训练曲线：`trainer/plots/` 目录下 `loss.png` / `ppl.png` / `lr.png` / `grad.png`
+训练过程中自动生成，实时覆盖更新：
+
+| 图表 | 路径 |
+|------|------|
+| 预训练 | `trainer/plots/loss.png` / `ppl.png` / `lr.png` / `grad.png` |
+| SFT | `trainer/plots_sft/loss.png` / `ppl.png` / `lr.png` / `grad.png` |
+
+数据点保存在同目录 `metrics.json` 中，可随时用原始数据重新画图。

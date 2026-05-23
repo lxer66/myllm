@@ -4,6 +4,7 @@ import json
 import os
 import random
 from datasets import load_dataset, Features, Sequence, Value
+from tokenizers import Tokenizer as HFTokenizer
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 def pre_processing_chat(conversations, add_system_ratio=0.2):
@@ -87,12 +88,14 @@ class BinDataset(Dataset):
 class SFTDataset(Dataset):
     def __init__(self, jsonl_path, tokenizer, max_length=1024):
         super().__init__()
-        self.tokenizer = tokenizer
+        self.tokenizer = tokenizer  # apply_chat_template 用
+        self.hf_tokenizer = HFTokenizer.from_file(str(tokenizer.tokenizer_path))  # Rust BPE 编码
         self.max_length = max_length
+        self.pad_token_id = tokenizer.pad_token_id
         features = Features({'conversations': [{'role': Value('string'), 'content': Value('string'), 'reasoning_content': Value('string'), 'tools': Value('string'), 'tool_calls': Value('string')}]})
         self.samples = load_dataset('json', data_files=jsonl_path, split='train', features=features)
-        self.bos_id = tokenizer(f'{tokenizer.bos_token}assistant\n', add_special_tokens=False).input_ids
-        self.eos_id = tokenizer(f'{tokenizer.eos_token}\n', add_special_tokens=False).input_ids
+        self.bos_id = self.hf_tokenizer.encode(f'{tokenizer.bos_token}assistant\n').ids
+        self.eos_id = self.hf_tokenizer.encode(f'{tokenizer.eos_token}\n').ids
 
     def __len__(self):
         return len(self.samples)
@@ -137,8 +140,8 @@ class SFTDataset(Dataset):
         conversations = pre_processing_chat(sample['conversations'])
         prompt = self.create_chat_prompt(conversations)
         prompt = post_processing_chat(prompt)
-        input_ids = self.tokenizer(prompt).input_ids[:self.max_length]
-        input_ids += [self.tokenizer.pad_token_id] * (self.max_length - len(input_ids))
+        input_ids = self.hf_tokenizer.encode(prompt).ids[:self.max_length]
+        input_ids += [self.pad_token_id] * (self.max_length - len(input_ids))
         labels = self.generate_labels(input_ids)
         # # === 调试打印 ===
         # print(f"\n--- Sample {index} ---")

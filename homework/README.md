@@ -83,7 +83,7 @@
 
 - 基于 `from_weight=pretrain` 的预训练权重进行微调
 - 同样使用 seaborn 本地绘图，图表保存至 `trainer/plots_sft/`
-- 默认 `batch_size=16`、`accumulation_steps=1`（有效 batch=16）、`epochs=2`、`lr=1e-5`、`max_seq_len=768`
+- 默认 `batch_size=32`、`accumulation_steps=1`（有效 batch=32）、`epochs=1`、`lr=1.5e-5`、`max_seq_len=768`
 - 对话数据通过 `SFTDataset.generate_labels` 只对 assistant 回复区间计算 loss
 
 ### trainer/trainer_utils.py
@@ -100,7 +100,11 @@
 
 ### eval_pretrain.py
 
-**预训练模型推理测试脚本**。加载 `out/pretrain_768.pth`，使用自回归补全模式生成文本。支持手动输入和预设提示词自动测试。默认使用 top-p sampling，temperature=0.85。
+**预训练模型推理测试脚本**。加载 `out/pretrain_768.pth`，使用自回归补全模式生成文本。支持手动输入和预设提示词自动测试。
+
+### eval_sft.py
+
+**SFT 模型对话测试脚本**。加载 `out/full_sft_768.pth`，使用 chat template 进行多轮对话。支持携带历史对话（`--historys N`）和预设提示词自动测试。
 
 ## 训练命令
 
@@ -150,7 +154,15 @@ python train_full_sft.py --from_resume 1
 
 ```bash
 cd ./homework
-python eval_pretrain.py                    # 自动加载 out/pretrain_768.pth
+
+# 预训练模型（补全模式）
+python eval_pretrain.py                           # 自动加载 out/pretrain_768.pth
+
+# SFT 模型（对话模式）
+python eval_sft.py                                # 自动加载 out/full_sft_768.pth
+
+# SFT 多轮对话
+python eval_sft.py --historys 4
 ```
 
 预训练模型使用补全模式（非对话），提示词如 "中国的首都是"、"机器学习是"。
@@ -163,7 +175,7 @@ python eval_pretrain.py                    # 自动加载 out/pretrain_768.pth
 | 输出 | `dataset/pretrain_t2t.bin`（11.5 GB，int16） |
 | 元数据 | `dataset/pretrain_t2t.bin.json` |
 | 耗时 | ~10 分钟（8 进程，Rust tokenizer） |
-| 截断策略 | 文本 > 1360 字符先截断再 BPE（覆盖 95.3% 数据） |
+| 截断策略 | BPE 编码后取前 `max_seq_len - 2` 个 token，再拼接 BOS/EOS |
 
 ## 训练曲线
 

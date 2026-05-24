@@ -153,11 +153,12 @@ class SFTDataset(Dataset):
 class DPODataset(Dataset):
     def __init__(self, file_path, tokenizer, max_length=4096):
         super().__init__()
-        self.tokenizer = tokenizer
+        self.tokenizer = tokenizer  # apply_chat_template 用
+        self.hf_tokenizer = HFTokenizer.from_file(str(tokenizer.tokenizer_path))  # Rust BPE 编码
         self.max_length = max_length
-        self.padding = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else 0
-        self.bos_id = tokenizer(f'{tokenizer.bos_token}assistant\n', add_special_tokens=False).input_ids
-        self.eos_id = tokenizer(f'{tokenizer.eos_token}\n', add_special_tokens=False).input_ids
+        self.pad_token_id = tokenizer.pad_token_id
+        self.bos_id = self.hf_tokenizer.encode(f'{tokenizer.bos_token}assistant\n').ids
+        self.eos_id = self.hf_tokenizer.encode(f'{tokenizer.eos_token}\n').ids
         self.samples = load_dataset('json', data_files=file_path, split='train')
 
     def __len__(self):
@@ -176,17 +177,13 @@ class DPODataset(Dataset):
             rejected, tokenize=False, add_generation_prompt=False
         )
         rejected_prompt = post_processing_chat(rejected_prompt)
-        chosen_encoding = self.tokenizer(
-            chosen_prompt, truncation=True, max_length=self.max_length, padding='max_length'
-        )
-        rejected_encoding = self.tokenizer(
-            rejected_prompt, truncation=True, max_length=self.max_length, padding='max_length'
-        )
 
-        chosen_input_ids = chosen_encoding['input_ids']
+        chosen_input_ids = self.hf_tokenizer.encode(chosen_prompt).ids[:self.max_length]
+        chosen_input_ids += [self.pad_token_id] * (self.max_length - len(chosen_input_ids))
+        rejected_input_ids = self.hf_tokenizer.encode(rejected_prompt).ids[:self.max_length]
+        rejected_input_ids += [self.pad_token_id] * (self.max_length - len(rejected_input_ids))
+
         chosen_loss_mask = self.generate_loss_mask(chosen_input_ids)
-
-        rejected_input_ids = rejected_encoding['input_ids']
         rejected_loss_mask = self.generate_loss_mask(rejected_input_ids)
         x_chosen = torch.tensor(chosen_input_ids[:-1], dtype=torch.long)
         y_chosen = torch.tensor(chosen_input_ids[1:], dtype=torch.long)
